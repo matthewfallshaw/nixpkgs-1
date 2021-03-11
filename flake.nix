@@ -1,5 +1,5 @@
 {
-  description = "Malo’s Nix system configs, and some other useful stuff.";
+  description = "Matt’s Nix system configs.";
 
   inputs = {
     # Package sets
@@ -14,36 +14,22 @@
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
-    # Neovim plugins
-    galaxyline-nvim = { url = "github:glepnir/galaxyline.nvim"; flake = false; };
-    gitsigns-nvim = { url = "github:lewis6991/gitsigns.nvim"; flake = false; };
-    lush-nvim = { url = "github:rktjmp/lush.nvim"; flake = false; };
-    moses-lua = { url = "github:Yonaba/Moses"; flake = false; };
-    telescope-nvim = { url = "github:nvim-telescope/telescope.nvim"; flake = false; };
-    telescope-symbols-nvim = { url = "github:nvim-telescope/telescope-symbols.nvim"; flake = false; };
-    telescope-z-nvim = { url = "github:nvim-telescope/telescope-z.nvim"; flake = false; };
-    vim-haskell-module-name = { url = "github:chkno/vim-haskell-module-name"; flake = false; };
-
     # Other sources
-    comma = { url = "github:Shopify/comma"; flake = false; };
-    fish-done = { url = "github:franciscolourenco/done"; flake = false; };
     flake-compat = { url = "github:edolstra/flake-compat"; flake = false; };
     flake-utils.url = "github:numtide/flake-utils";
-    neovim.url = "github:neovim/neovim?dir=contrib";
-    neovim.inputs.nixpkgs.follows = "nixpkgs";
-    prefmanager.url = "github:malob/prefmanager";
-    prefmanager.inputs.nixpkgs.follows = "nixpkgs";
+    malo.url = "github:malob/nixpkgs";
+    malo.inputs.nixpkgs.follows = "nixpkgs";
   };
 
 
-  outputs = { self, nixpkgs, darwin, home-manager, flake-utils, ... }@inputs:
+  outputs = { self, nixpkgs, darwin, home-manager, flake-utils, malo, ... }@inputs:
   let
     # Some building blocks --------------------------------------------------------------------- {{{
 
     # Configuration for `nixpkgs` mostly used in personal configs.
     nixpkgsConfig = with inputs; {
       config = { allowUnfree = true; };
-      overlays = self.overlays ++ [
+      overlays = malo.overlays ++ [
         (
           final: prev:
           let
@@ -58,7 +44,7 @@
     };
 
     # Personal configuration shared between `nix-darwin` and plain `home-manager` configs.
-    homeManagerCommonConfig = with self.homeManagerModules; {
+    homeManagerCommonConfig = with malo.homeManagerModules; {
       imports = [
         ./home
         configs.git.aliases
@@ -72,8 +58,8 @@
     # Modules shared by most `nix-darwin` personal configurations.
     nixDarwinCommonModules = { user }: [
       # Include extra `nix-darwin`
-      self.darwinModules.programs.nix-index
-      self.darwinModules.security.pam
+      malo.darwinModules.programs.nix-index
+      malo.darwinModules.security.pam
       # Main `nix-darwin` config
       ./darwin
       # `home-manager` module
@@ -101,11 +87,10 @@
       };
 
       # My macOS main laptop config
-      MaloBookPro = darwin.lib.darwinSystem {
-        modules = nixDarwinCommonModules { user = "malo"; } ++ [
+      Notnux = darwin.lib.darwinSystem {
+        modules = nixDarwinCommonModules { user = "matt"; } ++ [
           {
-            networking.computerName = "Malo’s 💻";
-            networking.hostName = "MaloBookPro";
+            networking.hostName = "Notnux";
             networking.knownNetworkServices = [
               "Wi-Fi"
               "USB 10/100/1000 LAN"
@@ -122,12 +107,11 @@
       };
     };
 
-    # Config I use with Linux cloud VMs
-    # Build and activate with `nix build .#cloudVM.activationPackage; ./result/activate`
-    cloudVM = home-manager.lib.homeManagerConfiguration {
+    # Build and activate with `nix build .#home.activationPackage; ./result/activate`
+    home = home-manager.lib.homeManagerConfiguration {
       system = "x86_64-linux";
-      homeDirectory = "/home/malo";
-      username = "malo";
+      homeDirectory = "/home/matt";
+      username = "matt";
       configuration = {
         imports = [ homeManagerCommonConfig ];
         nixpkgs = nixpkgsConfig;
@@ -135,60 +119,8 @@
     };
     # }}}
 
-    # Outputs useful to others ----------------------------------------------------------------- {{{
-
-    overlays = with inputs; [
-      (
-        final: prev: {
-          # Some packages
-          comma = import comma { inherit (prev) pkgs; };
-          neovim-nightly = neovim.packages.${prev.stdenv.system}.neovim;
-          prefmanager = prefmanager.defaultPackage.${prev.stdenv.system};
-
-          # Vim plugins
-          vimPlugins = prev.vimPlugins // prev.lib.genAttrs [
-            "galaxyline-nvim"
-            "lush-nvim"
-            "vim-haskell-module-name"
-            "gitsigns-nvim"
-            "telescope-nvim"
-            "telescope-symbols-nvim"
-            "telescope-z-nvim"
-          ] (final.lib.buildVimPluginFromFlakeInput inputs) // {
-            moses-nvim = final.lib.buildNeovimLuaPackagePluginFromFlakeInput inputs "moses-lua";
-          };
-
-          # Fish shell plugins
-          fishPlugins = prev.fishPlugins // {
-            done = prev.fishPlugins.buildFishPlugin {
-              pname = "done";
-              version = "HEAD";
-              src = inputs.fish-done;
-            };
-          };
-        }
-      )
-      # Other overlays that don't depend on flake inputs.
-    ] ++ map import ((import ./lsnix.nix) ./overlays);
-
-    # My `nix-darwin` modules that are pending upstream, or patched versions waiting on upstream
-    # fixes.
-    darwinModules = {
-      programs.nix-index = import ./darwin/modules/programs/nix-index.nix;
-      security.pam = import ./darwin/modules/security/pam.nix;
-    };
-
-    homeManagerModules = {
-      configs.git.aliases = import ./home/configs/git-aliases.nix;
-      configs.gh.aliases = import ./home/configs/gh-aliases.nix;
-      configs.starship.symbols = import ./home/configs/starship-symbols.nix;
-      programs.neovim.extras = import ./home/modules/programs/neovim/extras.nix;
-      programs.kitty.extras = import ./home/modules/programs/kitty/extras.nix;
-    };
-    # }}}
-
     # Add re-export `nixpkgs` packages with overlays.
-    # This is handy in combination with `nix registry add my /Users/malo/.config/nixpkgs`
+    # This is handy in combination with `nix registry add my /Users/matt/.config/nixpkgs`
   } // flake-utils.lib.eachDefaultSystem (system: {
       legacyPackages = import nixpkgs { inherit system; inherit (nixpkgsConfig) config overlays; };
   });
